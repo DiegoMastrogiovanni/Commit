@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { UploadIcon } from './Icons';
 
 interface FileUploadProps {
@@ -17,6 +17,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
   const [checkedState, setCheckedState] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  
+  const isProcessingFiles = useRef(false);
+  useEffect(() => {
+    isProcessingFiles.current = uploadProgress !== null;
+  }, [uploadProgress]);
+
 
   const reportCheckedFiles = useCallback((files: File[], checks: Record<string, boolean>) => {
       const checkedFiles = files.filter(file => checks[file.name]);
@@ -25,8 +32,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
       onFileChange(dataTransfer.files.length > 0 ? dataTransfer.files : null);
   }, [onFileChange]);
 
-  const validateAndSetFiles = useCallback((fileList: FileList | null) => {
-    if (!fileList) {
+  const validateAndSetFiles = useCallback(async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) {
       setValidFiles([]);
       setCheckedState({});
       setErrors([]);
@@ -34,12 +41,16 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
       return;
     }
 
+    setUploadProgress(0);
+    // Allow UI to render progress bar
+    await new Promise(r => setTimeout(r, 50)); 
+
     const files = Array.from(fileList);
     const newValidFiles: File[] = [];
     const currentErrors: string[] = [];
     const newCheckedState: Record<string, boolean> = {};
 
-    files.forEach(file => {
+    for (const [index, file] of files.entries()) {
       const extension = `.${file.name.split('.').pop()?.toLowerCase()}`;
       const isValidExtension = ALLOWED_EXTENSIONS.includes(extension);
       const isValidMimeType = !file.type || ALLOWED_MIME_TYPES.includes(file.type);
@@ -50,22 +61,36 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
       } else {
         currentErrors.push(`'${file.name}' is not a supported file type. Please use CSV, XLSX, or XLS.`);
       }
-    });
+
+      const progress = ((index + 1) / files.length) * 100;
+      setUploadProgress(progress);
+      // Small delay allows the progress bar to animate smoothly for many files
+      if (files.length > 20) {
+        await new Promise(r => setTimeout(r, 5));
+      }
+    }
     
     setValidFiles(newValidFiles);
     setCheckedState(newCheckedState);
     setErrors(currentErrors);
     reportCheckedFiles(newValidFiles, newCheckedState);
 
+    // Hide progress bar after a short delay so user can see it hit 100%
+    setTimeout(() => {
+        setUploadProgress(null);
+    }, 500);
+
   }, [onFileChange, reportCheckedFiles]);
 
-  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    validateAndSetFiles(event.target.files);
+  const handleFileSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isProcessingFiles.current) return;
+    await validateAndSetFiles(event.target.files);
     event.target.value = '';
   }, [validateAndSetFiles]);
   
   const handleDragOver = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
+    if (isProcessingFiles.current) return;
     setIsDragging(true);
   }, []);
   
@@ -74,10 +99,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback((event: React.DragEvent<HTMLLabelElement>) => {
+  const handleDrop = useCallback(async (event: React.DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
     setIsDragging(false);
-    validateAndSetFiles(event.dataTransfer.files);
+    if (isProcessingFiles.current) return;
+    await validateAndSetFiles(event.dataTransfer.files);
   }, [validateAndSetFiles]);
 
   const handleIndividualCheck = (fileName: string) => {
@@ -117,13 +143,26 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <div className="flex flex-col items-center justify-center pt-5 pb-6">
-            <UploadIcon className="w-10 h-10 mb-3 text-gray-400" />
-            <p className="mb-2 text-sm text-gray-400">
-              <span className="font-semibold text-teal-400">Click to upload</span> or drag and drop
-            </p>
-            <p className="text-xs text-gray-500">CSV and Excel (.xlsx, .xls) files supported</p>
-          </div>
+          {uploadProgress !== null ? (
+            <div className="w-full px-8 text-center">
+              <p className="text-sm text-gray-300 mb-3 font-semibold">Reading files...</p>
+              <div className="w-full bg-gray-800 rounded-full h-2.5">
+                <div
+                  className="bg-teal-500 h-2.5 rounded-full transition-all duration-150 ease-linear"
+                  style={{ width: `${uploadProgress}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">{Math.round(uploadProgress)}% Complete</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+              <UploadIcon className="w-10 h-10 mb-3 text-gray-400" />
+              <p className="mb-2 text-sm text-gray-400">
+                <span className="font-semibold text-teal-400">Click to upload</span> or drag and drop
+              </p>
+              <p className="text-xs text-gray-500">CSV and Excel (.xlsx, .xls) files supported</p>
+            </div>
+          )}
           <input
             id="dropzone-file"
             type="file"
@@ -131,6 +170,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileChange }) => {
             multiple
             accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={handleFileSelect}
+            disabled={uploadProgress !== null}
           />
         </label>
       </div>

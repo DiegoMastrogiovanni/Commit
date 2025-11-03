@@ -28,6 +28,52 @@ const dataToString = (data: DataRow[]): string => {
     return `${headerRow}\n${dataRows}`;
 }
 
+export const queryDataWithGemini = async (data: DataRow[], question: string): Promise<string> => {
+  if (!API_KEY) {
+    return Promise.reject(new Error("Gemini API key is not configured."));
+  }
+  if (!question.trim()) {
+    return Promise.resolve("Please ask a question.");
+  }
+
+  // Use a larger sample for queries as they might need more context
+  const dataSample = data.slice(0, 100);
+  if (dataSample.length === 0) {
+    return Promise.resolve("There is no data to query.");
+  }
+  const dataSampleString = dataToString(dataSample);
+  const totalRecords = data.length;
+
+  const prompt = `
+    You are an expert data analyst. A user has provided a dataset and a specific question about it. Your task is to answer the question based *only* on the provided data sample.
+
+    - The total dataset contains ${totalRecords} records. This sample contains the first ${dataSample.length} records.
+    - Analyze the data provided and give a direct, concise answer to the user's question.
+    - Do not make up information or infer data beyond the provided sample.
+    - If the sample is too small or does not contain the necessary information to answer the question, clearly state that and explain what information is missing.
+    - Format your answer in clear, readable markdown.
+
+    User Question: "${question}"
+
+    --- DATA SAMPLE (CSV) ---
+    ${dataSampleString}
+    --- END OF DATA SAMPLE ---
+
+    Answer:
+    `;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Error calling Gemini API for data query:", error);
+    throw new Error("Failed to get an answer from the AI. Please check the console for details.");
+  }
+};
+
 export const analyzeSchemaWithGemini = async (data: DataRow[]): Promise<any[]> => {
     if (!API_KEY) {
         return Promise.reject(new Error("Gemini API key is not configured."));

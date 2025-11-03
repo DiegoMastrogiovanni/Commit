@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { processFiles } from './services/dataProcessor';
-import { analyzeDataWithGemini, generatePivotAnalysisWithGemini, analyzeSchemaWithGemini } from './services/geminiService';
+import { analyzeDataWithGemini, generatePivotAnalysisWithGemini, analyzeSchemaWithGemini, queryDataWithGemini } from './services/geminiService';
 import { type DataRow } from './types';
 import FileUpload from './components/FileUpload';
 import DataTable from './components/DataTable';
@@ -12,6 +12,7 @@ import Header from './components/Header';
 import { validateFiles } from './services/fileValidator';
 import ProcessingProgress from './components/ProcessingProgress';
 import AnalysisProgress from './components/AnalysisProgress';
+import QueryAnalysis from './components/QueryAnalysis';
 
 declare const Papa: any;
 declare const JSZip: any;
@@ -30,13 +31,18 @@ const App: React.FC = () => {
     processedCount: number;
     totalCount: number;
   } | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [isGeneratingPivot, setIsGeneratingPivot] = useState<boolean>(false);
-  const [isAnalyzingSchema, setIsAnalyzingSchema] = useState<boolean>(false);
+
+  const [isAnalyzingAI, setIsAnalyzingAI] = useState<boolean>(false);
+  const [analysisProgressMessage, setAnalysisProgressMessage] = useState<string>('');
+
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [pivotAnalysis, setPivotAnalysis] = useState<string | null>(null);
   const [schemaAnalysis, setSchemaAnalysis] = useState<any[] | null>(null);
   const [isPackaging, setIsPackaging] = useState<boolean>(false);
+
+  const [queryAnswer, setQueryAnswer] = useState<string | null>(null);
+  const [isQueryingAI, setIsQueryingAI] = useState<boolean>(false);
+  const [queryError, setQueryError] = useState<string | null>(null);
 
   const [filterText, setFilterText] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
@@ -57,6 +63,8 @@ const App: React.FC = () => {
     setFilterText('');
     setSortConfig(null);
     setSearchHistory([]);
+    setQueryAnswer(null);
+    setQueryError(null);
 
     if (selectedFiles && selectedFiles.length > 0) {
       const { validFiles: newValidFiles, errors: newValidationErrors } = await validateFiles(selectedFiles);
@@ -114,68 +122,61 @@ const App: React.FC = () => {
     }
   }, [validFiles]);
 
-  const handleAnalyzeData = useCallback(async () => {
+  const handleAskQuery = async (question: string) => {
+      if (data.length === 0) {
+          setQueryError('No data available to query.');
+          return;
+      }
+
+      setIsQueryingAI(true);
+      setQueryError(null);
+      setQueryAnswer(null); // Clear previous answer
+
+      try {
+          const result = await queryDataWithGemini(data, question);
+          setQueryAnswer(result);
+      } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred while querying the AI.';
+          setQueryError(errorMessage);
+      } finally {
+          setIsQueryingAI(false);
+      }
+  };
+
+  const handleRunFullAnalysis = async () => {
     if (data.length === 0) {
-      setError('No data available to analyze.');
-      return;
+        setError('No data available to analyze.');
+        return;
     }
 
-    setIsAnalyzing(true);
+    setIsAnalyzingAI(true);
     setError(null);
+    // Clear previous results
+    setSchemaAnalysis(null);
     setAnalysis(null);
-
-    try {
-      const result = await analyzeDataWithGemini(data);
-      setAnalysis(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred during analysis.');
-      setAnalysis(null);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }, [data]);
-  
-  const handleGeneratePivotSummary = useCallback(async () => {
-    if (data.length === 0) {
-      setError('No data available to analyze for pivot summary.');
-      return;
-    }
-
-    setIsGeneratingPivot(true);
-    setError(null);
     setPivotAnalysis(null);
 
     try {
-      const result = await generatePivotAnalysisWithGemini(data);
-      setPivotAnalysis(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred during pivot analysis.');
-      setPivotAnalysis(null);
-    } finally {
-      setIsGeneratingPivot(false);
-    }
-  }, [data]);
-  
-  const handleAnalyzeSchema = useCallback(async () => {
-    if (data.length === 0) {
-      setError('No data available to analyze schema.');
-      return;
-    }
+        setAnalysisProgressMessage('Step 1 of 3: Analyzing database schema...');
+        const schemaResult = await analyzeSchemaWithGemini(data);
+        setSchemaAnalysis(schemaResult);
 
-    setIsAnalyzingSchema(true);
-    setError(null);
-    setSchemaAnalysis(null);
+        setAnalysisProgressMessage('Step 2 of 3: Generating data summary...');
+        const analysisResult = await analyzeDataWithGemini(data);
+        setAnalysis(analysisResult);
 
-    try {
-      const result = await analyzeSchemaWithGemini(data);
-      setSchemaAnalysis(result);
+        setAnalysisProgressMessage('Step 3 of 3: Generating pivot analysis...');
+        const pivotResult = await generatePivotAnalysisWithGemini(data);
+        setPivotAnalysis(pivotResult);
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred during schema analysis.');
-      setSchemaAnalysis(null);
+        const errorMessage = err instanceof Error ? err.message : 'An unknown AI analysis error occurred.';
+        setError(`Analysis failed. ${errorMessage}`);
     } finally {
-      setIsAnalyzingSchema(false);
+        setIsAnalyzingAI(false);
+        setAnalysisProgressMessage('');
     }
-  }, [data]);
+  };
 
   const handleExportData = () => {
     if (data.length === 0) return;
@@ -348,6 +349,7 @@ const App: React.FC = () => {
   }, [data, filterText, sortConfig]);
 
   const hasData = useMemo(() => data.length > 0, [data]);
+  const hasAnalysisResults = useMemo(() => !!(schemaAnalysis || analysis || pivotAnalysis), [schemaAnalysis, analysis, pivotAnalysis]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-200 font-sans">
@@ -368,15 +370,25 @@ const App: React.FC = () => {
             )}
           </div>
 
-          <div className="flex justify-center items-center min-h-[52px]">
+          <div className="flex justify-center items-center gap-4 flex-wrap min-h-[52px]">
             {!isProcessing ? (
-              <button
-                onClick={handleProcessFiles}
-                disabled={validFiles.length === 0}
-                className="px-8 py-3 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
-              >
-                {`Process ${validFiles.length > 0 ? validFiles.length : ''} Valid File(s)`}
-              </button>
+              <>
+                <button
+                  onClick={handleProcessFiles}
+                  disabled={validFiles.length === 0}
+                  className="px-8 py-3 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
+                >
+                  {`Process ${validFiles.length > 0 ? validFiles.length : ''} Valid File(s)`}
+                </button>
+                <button
+                    onClick={handleExportData}
+                    disabled={!hasData}
+                    className="px-6 py-3 border border-gray-600 text-gray-300 font-bold rounded-lg shadow-md hover:bg-gray-700 disabled:border-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
+                >
+                    <DownloadIcon className="mr-2 h-5 w-5" />
+                    Download Database (.csv)
+                </button>
+              </>
             ) : (
               processingProgress && (
                 <ProcessingProgress 
@@ -402,10 +414,14 @@ const App: React.FC = () => {
           {hasData && (
              <>
               <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
-                <h2 className="text-xl font-semibold text-teal-300">Step 2: Review Consolidated Data</h2>
-                 <p className="text-gray-400 mt-1 mb-4">
-                  {data.length} records consolidated. {filterText && `(${filteredAndSortedData.length} matching filter)`}
-                </p>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4">
+                    <div>
+                        <h2 className="text-xl font-semibold text-teal-300">Step 2: Review Consolidated Data</h2>
+                         <p className="text-gray-400 mt-1">
+                          {data.length} records consolidated. {filterText && `(${filteredAndSortedData.length} matching filter)`}
+                        </p>
+                    </div>
+                </div>
                 <DataTable 
                   headers={headers} 
                   data={filteredAndSortedData} 
@@ -417,67 +433,73 @@ const App: React.FC = () => {
                   searchHistory={searchHistory}
                 />
               </div>
+              
+              <QueryAnalysis
+                onAskQuery={handleAskQuery}
+                answer={queryAnswer}
+                error={queryError}
+                isLoading={isQueryingAI}
+              />
 
               <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 shadow-lg">
-                <h2 className="text-xl font-semibold text-teal-300">Step 3: Analyze & Export</h2>
-                <p className="text-gray-400 mt-1 mb-6">Use our AI tools to identify key insights and define a database schema. When you're ready, export your findings for your local database.</p>
+                <h2 className="text-xl font-semibold text-teal-300">Step 4: Analyze & Export</h2>
+                <p className="text-gray-400 mt-1 mb-6">Use our AI tools to identify key insights and define a database schema. When you're ready, export your findings.</p>
                 
                 <div className="space-y-6">
-                   <div className="flex flex-col md:flex-row gap-4 items-center flex-wrap">
-                      <button onClick={handleAnalyzeSchema} disabled={isAnalyzingSchema || isAnalyzing || isGeneratingPivot} className="w-full md:w-auto px-6 py-2 bg-orange-600 text-white font-semibold rounded-lg shadow-md hover:bg-orange-700 disabled:bg-gray-600 transition-all duration-300 flex items-center justify-center">
-                        {isAnalyzingSchema ? <><LoaderIcon className="animate-spin -ml-1 mr-3 h-5 w-5" />Analyzing Schema...</> : <><AnalyzeIcon className="mr-2 h-5 w-5" />Analyze Schema</>}
-                      </button>
-                       {schemaAnalysis && (
-                          <button onClick={handleExportSchema} className="w-full md:w-auto flex items-center justify-center px-6 py-2 border border-orange-500 text-orange-300 font-semibold rounded-lg hover:bg-orange-500/20 transition-colors">
-                              <DownloadIcon className="mr-2 h-5 w-5" />
-                              Download Schema (.json)
-                          </button>
-                       )}
-                      <button onClick={handleAnalyzeData} disabled={isAnalyzing || isAnalyzingSchema || isGeneratingPivot} className="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-600 transition-all duration-300 flex items-center justify-center">
-                        {isAnalyzing ? <><LoaderIcon className="animate-spin -ml-1 mr-3 h-5 w-5" />Analyzing...</> : <><AnalyzeIcon className="mr-2 h-5 w-5" />Analyze with AI</>}
-                      </button>
-                      {analysis && (
-                        <button onClick={handleGeneratePivotSummary} disabled={isGeneratingPivot || isAnalyzing || isAnalyzingSchema} className="w-full md:w-auto px-6 py-2 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-600 transition-all duration-300 flex items-center justify-center">
-                          {isGeneratingPivot ? <><LoaderIcon className="animate-spin -ml-1 mr-3 h-5 w-5" />Generating...</> : <><AnalyzeIcon className="mr-2 h-5 w-5" />Generate AI Pivot Summary</>}
+                    <div className="flex flex-col md:flex-row items-center gap-4 p-4 bg-gray-900/30 rounded-lg">
+                        <button onClick={handleRunFullAnalysis} disabled={isAnalyzingAI || isQueryingAI} className="w-full md:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-gray-600 transition-all duration-300 flex items-center justify-center">
+                          {(isAnalyzingAI || isQueryingAI) ? <><LoaderIcon className="animate-spin -ml-1 mr-3 h-5 w-5" />Analyzing...</> : <><AnalyzeIcon className="mr-2 h-5 w-5" />Run Full AI Analysis</>}
                         </button>
-                      )}
+                        <p className="text-sm text-gray-400 text-center md:text-left">
+                            Performs schema, summary, and pivot analysis in one step.
+                        </p>
                     </div>
-                    
-                    {isAnalyzingSchema && <AnalysisProgress message="Analyzing Schema with AI..." />}
-                    {isAnalyzing && <AnalysisProgress message="Generating AI Analysis Summary..." />}
-                    {isGeneratingPivot && <AnalysisProgress message="Generating AI Pivot Summary..." />}
 
-                    {schemaAnalysis && <SchemaAnalysisCard schema={schemaAnalysis} />}
-                    {analysis && <AnalysisCard title="AI Analysis Summary" content={analysis} />}
-                    {pivotAnalysis && <AnalysisCard title="AI Pivot Summary" content={pivotAnalysis} />}
+                    {isAnalyzingAI && <AnalysisProgress message={analysisProgressMessage} />}
                     
-                    <div className="border-t border-gray-700 pt-6 space-y-4">
-                        <p className="text-gray-400 mb-2">Download a complete project package or individual files. The package is a ZIP archive containing all data and analyses.</p>
-                        
-                        <div className="flex flex-col md:flex-row gap-4 flex-wrap">
-                            <button 
-                                onClick={handleExportProject} 
-                                disabled={isPackaging}
-                                className="w-full md:w-auto flex items-center justify-center px-6 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 disabled:bg-gray-600 transition-all duration-300"
-                            >
-                                {isPackaging 
-                                    ? <><LoaderIcon className="animate-spin -ml-1 mr-3 h-5 w-5" />Packaging...</> 
-                                    : <><ArchiveIcon className="mr-2 h-5 w-5" />Download Project (.zip)</>
-                                }
-                            </button>
-                        </div>
-
-                        <div className="flex flex-col md:flex-row gap-4 pt-4 border-t border-gray-700/50">
-                           <button onClick={handleExportData} className="w-full md:w-auto flex items-center justify-center px-6 py-2 border border-teal-500 text-teal-300 font-semibold rounded-lg hover:bg-teal-500/20 transition-colors">
-                                <DownloadIcon className="mr-2 h-5 w-5" />
-                                Download Data (.csv)
-                           </button>
-                            <button onClick={handleExportReport} disabled={!analysis && !pivotAnalysis} className="w-full md:w-auto flex items-center justify-center px-6 py-2 border border-indigo-500 text-indigo-300 font-semibold rounded-lg hover:bg-indigo-500/20 transition-colors disabled:border-gray-600 disabled:text-gray-500 disabled:hover:bg-transparent">
-                                <DownloadIcon className="mr-2 h-5 w-5" />
-                                Download Report (.md)
-                            </button>
-                        </div>
+                    <div className="space-y-6">
+                      {schemaAnalysis && <SchemaAnalysisCard schema={schemaAnalysis} />}
+                      {analysis && <AnalysisCard title="AI Analysis Summary" content={analysis} />}
+                      {pivotAnalysis && <AnalysisCard title="AI Pivot Summary" content={pivotAnalysis} />}
                     </div>
+
+                    {hasAnalysisResults && (
+                       <div className="border-t border-gray-700 pt-6 space-y-4">
+                            <h4 className="text-lg font-semibold text-gray-300">Export Results</h4>
+                            <p className="text-gray-400">Download a complete project package (recommended) or individual files.</p>
+                            
+                            <div className="flex flex-col md:flex-row gap-4 flex-wrap">
+                                <button 
+                                    onClick={handleExportProject} 
+                                    disabled={isPackaging}
+                                    className="w-full md:w-auto flex items-center justify-center px-6 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 disabled:bg-gray-600 transition-all duration-300"
+                                >
+                                    {isPackaging 
+                                        ? <><LoaderIcon className="animate-spin -ml-1 mr-3 h-5 w-5" />Packaging...</> 
+                                        : <><ArchiveIcon className="mr-2 h-5 w-5" />Download Complete Project Package (.zip)</>
+                                    }
+                                </button>
+                            </div>
+
+                            <div className="pt-4 space-y-2">
+                                <p className="text-sm text-gray-500">Or download individual assets:</p>
+                                <div className="flex flex-col md:flex-row gap-4 flex-wrap">
+                                   {schemaAnalysis && (
+                                       <button onClick={handleExportSchema} className="w-full md:w-auto flex items-center justify-center px-4 py-2 text-sm border border-gray-600 text-gray-300 font-semibold rounded-lg hover:bg-gray-700 transition-colors">
+                                           <DownloadIcon className="mr-2 h-4 w-4" />
+                                           Schema (.json)
+                                       </button>
+                                   )}
+                                   {(analysis || pivotAnalysis) && (
+                                       <button onClick={handleExportReport} disabled={!analysis && !pivotAnalysis} className="w-full md:w-auto flex items-center justify-center px-4 py-2 text-sm border border-gray-600 text-gray-300 font-semibold rounded-lg hover:bg-gray-700 transition-colors disabled:border-gray-700 disabled:text-gray-500 disabled:hover:bg-transparent">
+                                           <DownloadIcon className="mr-2 h-4 w-4" />
+                                           AI Report (.md)
+                                       </button>
+                                   )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
               </div>
             </>
