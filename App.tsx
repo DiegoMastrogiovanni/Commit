@@ -48,6 +48,21 @@ const App: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'ascending' | 'descending' } | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
+  const triggerCsvDownload = useCallback((dataToDownload: DataRow[], fileName: string) => {
+    if (dataToDownload.length === 0) return;
+    const csv = Papa.unparse(dataToDownload);
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
+
   const handleFileChange = useCallback(async (selectedFiles: FileList | null) => {
     setFiles(selectedFiles);
     // Reset state when new files are selected
@@ -110,6 +125,8 @@ const App: React.FC = () => {
       
       if (newData.length === 0 && validFiles.length > 0) {
           setError("No data could be consolidated. Please check the file contents and processing notices.");
+      } else if (newData.length > 0) {
+        triggerCsvDownload(newData, 'database completo.csv');
       }
 
     } catch (err) {
@@ -120,7 +137,7 @@ const App: React.FC = () => {
       setIsProcessing(false);
       setProcessingProgress(null);
     }
-  }, [validFiles]);
+  }, [validFiles, triggerCsvDownload]);
 
   const handleAskQuery = async (question: string) => {
       if (data.length === 0) {
@@ -179,17 +196,7 @@ const App: React.FC = () => {
   };
 
   const handleExportData = () => {
-    if (data.length === 0) return;
-    const csv = Papa.unparse(data);
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'consolidated_data.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    triggerCsvDownload(data, 'consolidated_data.csv');
   };
 
   const handleExportReport = () => {
