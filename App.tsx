@@ -391,7 +391,7 @@ const App: React.FC = () => {
             
             <button
                 onClick={handleExportData}
-                disabled={!hasData}
+                disabled={isProcessing || !hasData}
                 className="px-6 py-3 border border-gray-600 text-gray-300 font-bold rounded-lg shadow-md hover:bg-gray-700 disabled:border-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
             >
                 <DownloadIcon className="mr-2 h-5 w-5" />
