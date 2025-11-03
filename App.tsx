@@ -372,23 +372,13 @@ const App: React.FC = () => {
 
           <div className="flex justify-center items-center gap-4 flex-wrap min-h-[52px]">
             {!isProcessing ? (
-              <>
-                <button
-                  onClick={handleProcessFiles}
-                  disabled={validFiles.length === 0}
-                  className="px-8 py-3 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
-                >
-                  {`Process ${validFiles.length > 0 ? validFiles.length : ''} Valid File(s)`}
-                </button>
-                <button
-                    onClick={handleExportData}
-                    disabled={!hasData}
-                    className="px-6 py-3 border border-gray-600 text-gray-300 font-bold rounded-lg shadow-md hover:bg-gray-700 disabled:border-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
-                >
-                    <DownloadIcon className="mr-2 h-5 w-5" />
-                    Download Database (.csv)
-                </button>
-              </>
+              <button
+                onClick={handleProcessFiles}
+                disabled={validFiles.length === 0}
+                className="px-8 py-3 bg-teal-600 text-white font-bold rounded-lg shadow-md hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
+              >
+                {`Process ${validFiles.length > 0 ? validFiles.length : ''} Valid File(s)`}
+              </button>
             ) : (
               processingProgress && (
                 <ProcessingProgress 
@@ -398,6 +388,15 @@ const App: React.FC = () => {
                 />
               )
             )}
+            
+            <button
+                onClick={handleExportData}
+                disabled={!hasData}
+                className="px-6 py-3 border border-gray-600 text-gray-300 font-bold rounded-lg shadow-md hover:bg-gray-700 disabled:border-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed transition-all duration-300 flex items-center"
+            >
+                <DownloadIcon className="mr-2 h-5 w-5" />
+                Download Database (.csv)
+            </button>
           </div>
 
           {error && <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg" role="alert">{error}</div>}
