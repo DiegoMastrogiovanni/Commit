@@ -1,3 +1,4 @@
+
 import { type DataRow } from '../types';
 
 declare const Papa: any;
@@ -119,18 +120,128 @@ const parseExcelFile = (file: File): Promise<ParseResult[]> => {
   });
 };
 
-export const processFiles = async (files: File[]): Promise<{ headers: string[]; data: DataRow[]; errors: { fileName: string; reason: string }[] }> => {
+const isBooleanString = (val: string): boolean => {
+    const lower = val.toLowerCase();
+    return lower === 'true' || lower === 'false' || lower === 'yes' || lower === 'no' || lower === '1' || lower === '0';
+};
+
+const toBoolean = (val: string): boolean => {
+    const lower = val.toLowerCase();
+    return lower === 'true' || lower === 'yes' || lower === '1';
+};
+
+const isIntegerString = (val: string): boolean => /^-?\d+$/.test(val);
+const isNumberString = (val: string): boolean => !isNaN(parseFloat(val)) && isFinite(Number(val));
+
+const inferAndConvertTypes = (headers: string[], data: DataRow[]): DataRow[] => {
+    if (data.length === 0) return [];
+
+    const columnTypes: { [key: string]: 'boolean' | 'integer' | 'number' | 'string' } = {};
+
+    // 1. Infer types from a sample of up to 500 rows
+    const sample = data.slice(0, 500);
+
+    for (const header of headers) {
+        let isPotentiallyBoolean = true;
+        let isPotentiallyInteger = true;
+        let isPotentiallyNumber = true;
+
+        for (const row of sample) {
+            const value = row[header];
+            if (value === null || value === undefined || String(value).trim() === '') {
+                continue; // Ignore empty values for type inference
+            }
+            
+            const stringValue = String(value).trim();
+            
+            if (isPotentiallyBoolean && !isBooleanString(stringValue)) {
+                isPotentiallyBoolean = false;
+            }
+            if (isPotentiallyInteger && !isIntegerString(stringValue)) {
+                isPotentiallyInteger = false;
+            }
+            if (isPotentiallyNumber && !isNumberString(stringValue)) {
+                isPotentiallyNumber = false;
+            }
+            
+            if (!isPotentiallyBoolean && !isPotentiallyInteger && !isPotentiallyNumber) {
+                break;
+            }
+        }
+        
+        if (isPotentiallyBoolean && sample.some(r => r[header] !== null && String(r[header]).trim() !== '')) columnTypes[header] = 'boolean';
+        else if (isPotentiallyInteger) columnTypes[header] = 'integer';
+        else if (isPotentiallyNumber) columnTypes[header] = 'number';
+        else columnTypes[header] = 'string';
+    }
+
+    // 2. Convert the entire dataset based on inferred types
+    return data.map(row => {
+        const newRow: DataRow = { ...row };
+        for (const header in newRow) {
+            if (!Object.prototype.hasOwnProperty.call(newRow, header)) continue;
+
+            const value = newRow[header];
+            if (value === null || value === undefined || String(value).trim() === '') {
+                newRow[header] = null; // Standardize empty values
+                continue;
+            }
+            
+            const stringValue = String(value).trim();
+            const type = columnTypes[header];
+
+            switch (type) {
+                case 'boolean':
+                    if (isBooleanString(stringValue)) {
+                        newRow[header] = toBoolean(stringValue);
+                    }
+                    break;
+                case 'integer':
+                    if (isIntegerString(stringValue)) {
+                       newRow[header] = parseInt(stringValue, 10);
+                    }
+                    break;
+                case 'number':
+                     if (isNumberString(stringValue)) {
+                        newRow[header] = parseFloat(stringValue);
+                     }
+                    break;
+            }
+        }
+        return newRow;
+    });
+};
+
+export const processFiles = async (
+  files: File[],
+  onProgress?: (fileName: string, processedCount: number, totalCount: number) => void
+): Promise<{ headers: string[]; data: DataRow[]; errors: { fileName: string; reason: string }[] }> => {
   const allResults: ParseResult[] = [];
   const processingErrors: { fileName: string; reason: string }[] = [];
 
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
+    if (onProgress) {
+      // Add a small delay for better UX on very fast processing
+      await new Promise(resolve => setTimeout(resolve, 50));
+      onProgress(file.name, index + 1, files.length);
+    }
+    
     try {
       const fileName = file.name.toLowerCase();
       if (fileName.endsWith('.csv')) {
         const result = await parseCsvFile(file);
+        if (result.errors.length > 0) {
+            result.errors.forEach(e => {
+                processingErrors.push({
+                    fileName: file.name,
+                    // Papa's row is 0-indexed data row, so add 2 for 1-based line number with header
+                    reason: `Line ${e.row + 2}: ${e.message} (Code: ${e.code})`,
+                });
+            });
+        }
         if (result.data.length > 0) {
             allResults.push(result);
-        } else {
+        } else if (result.errors.length === 0) { // Only report empty if no other parsing errors occurred
             processingErrors.push({ fileName: file.name, reason: 'File contains no data rows and was skipped.' });
         }
       } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
@@ -178,5 +289,7 @@ export const processFiles = async (files: File[]): Promise<{ headers: string[]; 
     });
   });
 
-  return { headers: unifiedHeaders, data: consolidatedData, errors: processingErrors };
+  const typedData = inferAndConvertTypes(unifiedHeaders, consolidatedData);
+
+  return { headers: unifiedHeaders, data: typedData, errors: processingErrors };
 };

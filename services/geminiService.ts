@@ -40,7 +40,7 @@ export const analyzeSchemaWithGemini = async (data: DataRow[]): Promise<any[]> =
 
     const prompt = `
         Based on the following column headers and data sample, act as a database architect and define a schema.
-        For each column, determine a likely data type (e.g., Text, Integer, Decimal, Date, Boolean) and provide a brief description of its purpose.
+        For each column, determine a likely data type (e.g., Text, Integer, Decimal, Date, Boolean), suggest a standard SQL data type (e.g., VARCHAR(255), INTEGER, DECIMAL(10, 2), DATE, BOOLEAN), and provide a brief description of its purpose.
         
         Headers: ${headers.join(', ')}
 
@@ -65,14 +65,18 @@ export const analyzeSchemaWithGemini = async (data: DataRow[]): Promise<any[]> =
                             },
                             inferredType: {
                                 type: Type.STRING,
-                                description: "The suggested data type (e.g., Text, Integer, Date, Boolean)."
+                                description: "The suggested general data type (e.g., Text, Integer, Date, Boolean)."
+                            },
+                            sqlType: {
+                                type: Type.STRING,
+                                description: "The suggested SQL data type (e.g., VARCHAR(255), INTEGER, DATE)."
                             },
                             description: {
                                 type: Type.STRING,
                                 description: "A brief description of what this field represents."
                             }
                         },
-                        required: ["fieldName", "inferredType", "description"]
+                        required: ["fieldName", "inferredType", "sqlType", "description"]
                     }
                 }
             }

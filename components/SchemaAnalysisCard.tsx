@@ -4,6 +4,7 @@ import React from 'react';
 interface SchemaItem {
   fieldName: string;
   inferredType: string;
+  sqlType: string;
   description: string;
 }
 
@@ -28,6 +29,7 @@ const SchemaAnalysisCard: React.FC<SchemaAnalysisCardProps> = ({ schema }) => {
             <tr>
               <th className="p-2 pb-3 text-sm font-semibold text-gray-300">Field Name</th>
               <th className="p-2 pb-3 text-sm font-semibold text-gray-300">Inferred Type</th>
+              <th className="p-2 pb-3 text-sm font-semibold text-gray-300">SQL Type</th>
               <th className="p-2 pb-3 text-sm font-semibold text-gray-300">Description</th>
             </tr>
           </thead>
@@ -36,6 +38,7 @@ const SchemaAnalysisCard: React.FC<SchemaAnalysisCardProps> = ({ schema }) => {
               <tr key={index} className="border-b border-gray-700 last:border-b-0">
                 <td className="p-2 text-sm font-mono text-teal-300 whitespace-nowrap">{item.fieldName}</td>
                 <td className="p-2 text-sm text-gray-300 whitespace-nowrap">{item.inferredType}</td>
+                <td className="p-2 text-sm font-mono text-cyan-300 whitespace-nowrap">{item.sqlType}</td>
                 <td className="p-2 text-sm text-gray-400">{item.description}</td>
               </tr>
             ))}
