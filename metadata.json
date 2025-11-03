@@ -1,0 +1,5 @@
+{
+  "name": "Data Sheet Consolidator",
+  "description": "Upload and merge multiple CSV files with similar structures into a single, unified table, ready for analysis or import. Includes an AI-powered data summary feature.",
+  "requestFramePermissions": []
+}
